@@ -8,8 +8,9 @@
 #include <arpa/inet.h>
 #include <map>
 #include <sys/fcntl.h>
-
-namespace clear_sky
+#include "../event_system/event_system.hpp"
+// #include "src/event_system/event_system.hpp"
+namespace network
 {
     // set file descriptor behaviour to non-blocking
     // epoll need this
@@ -76,6 +77,8 @@ namespace clear_sky
                 printf("%s\n", "SOCKET CREATION ERROR");
                 return;
             }
+
+            set_nonblocking(socket_fd);
 
             socket_ready_flag++;
             socket_init_flag++;
@@ -170,7 +173,7 @@ namespace clear_sky
             return this->IP_address;
         }
     };
-} // namespace clear_sky
+} // namespace network
 
 #endif
 #endif

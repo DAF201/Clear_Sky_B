@@ -13,14 +13,12 @@
 #include <sys/epoll.h>
 #include <signal.h>
 #include <atomic>
+#include <sys/fcntl.h>
 namespace event_system
 {
     typedef int fd;
-
     std::mutex event_system_mutex;
-
     std::atomic<bool> event_system_alive = true;
-
     static const int urgency_multiplier = 50;
     static const int importance_multiplier = 120;
 
@@ -38,7 +36,13 @@ namespace event_system
         return floor(pow(urgency * urgency_multiplier, 0.5) / 10 + pow(importance * importance_multiplier, 0.5) / 10);
     }
 
-    struct task
+    void set_nonblocking(int fd)
+    {
+        int flags = fcntl(fd, F_GETFL, 0);
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    }
+
+    struct event_task
     {
         LEVEL urgency;
         LEVEL importance;
@@ -51,9 +55,9 @@ namespace event_system
         // FUTURE USE
         int repeat;
 
-        task() {}
+        event_task() {}
 
-        task(std::function<void(void *, void *)> task_body, void *return_ptr, void *param_ptr, LEVEL urgency, LEVEL importance, int repeat = 1)
+        event_task(std::function<void(void *, void *)> task_body, void *return_ptr, void *param_ptr, LEVEL urgency, LEVEL importance, int repeat = 1)
         {
             this->func = task_body;
             this->return_ptr = return_ptr;
@@ -78,22 +82,22 @@ namespace event_system
 
     struct compare_task
     {
-        inline bool operator()(const task &t1, const task &t2)
+        inline bool operator()(const event_task &t1, const event_task &t2)
         {
             // Return true if t1 has lower priority than t2 (for max-heap behavior)
             return priority_calculator(t1.urgency, t1.importance) < priority_calculator(t2.urgency, t2.importance);
         }
     };
 
-    std::priority_queue<task, std::vector<task>, compare_task> task_heap;
-    std::map<fd, task> task_map;
+    std::priority_queue<event_task, std::vector<event_task>, compare_task> task_heap;
+    std::map<fd, event_task> task_map;
 
     class executor
     {
     private:
         void work()
         {
-            task t;
+            event_task t;
             while (event_system_alive)
             {
                 if (task_heap.empty())
@@ -119,6 +123,7 @@ namespace event_system
         }
     };
 
+    // listen and do something
     class listener
     {
     private:
@@ -140,7 +145,7 @@ namespace event_system
                 for (int i = 0; i < num_of_events; i++)
                 {
 
-                    // task max trigger check, if reached max repeat, remove from map and epoll
+                    // event_task max trigger check, if reached max repeat, remove from map and epoll
                     if (task_map[events_buffer[i].data.fd].repeat == 0)
                     {
                         task_map.erase(events_buffer[i].data.fd);
@@ -151,7 +156,7 @@ namespace event_system
                     if (task_map[events_buffer[i].data.fd].repeat != INT32_MAX)
                         task_map[events_buffer[i].data.fd].repeat--;
 
-                    // find the task, push to heap
+                    // find the event_task, push to heap
                     task_heap.push(task_map[events_buffer[i].data.fd]);
                 }
                 event_system_mutex.unlock();
@@ -168,7 +173,7 @@ namespace event_system
             ex.start();
         }
 
-        void add_event(fd target_fd, int trigger_event, task t)
+        void add_event(fd target_fd, int trigger_event, event_task t)
         {
             ev.data.fd = target_fd;
             ev.events = trigger_event;
